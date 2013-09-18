@@ -5,6 +5,8 @@
         <link rel="stylesheet" href="css/style.css">
         <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0-rc1/css/bootstrap.min.css">
         
+<!--script src="WorkerConsole.js"></script> TO BE DELETED ------------------------------ -->
+        
         <script src="js/lib/jquery-2.0.3.min.js"></script>
         <script src="js/lib/raphael-min.js"></script>
         <script src="js/lib/purl.js"></script>
@@ -16,7 +18,7 @@
             <div class="container">
                     <a class="navbar-brand page-title">Visual cRAWLER</a>
                     <ul class="nav navbar-nav">
-                        <li class="active"><a href="#">Home</a></li>
+                        <li id="helpButton" class="active"><a href="#">Help</a></li>
                         <li><a id="clearButton" href="#">Clear</a></li>
                         <li><a id="pauseButton" href="#">Pause</a></li>
                         <li><a id="resumeButton" href="#">Resume</a></li>                        
@@ -32,11 +34,35 @@
 
         </div> 
 
-        <div id="loadingFrame" class="container loading-frame" >
-            <div id="loading" class="loading-img loading-div" >
-                <img src="img/loading.gif" class="loading-img">
-            </div>
+        <!-- Fork me on Github Ribbon-->
+        <a id="github-ribbon" href="https://github.com/mlarocca/V-rawler"><img style="position: absolute; top: 50px; right: 0; border: 0; z-index: 10;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_green_007200.png" alt="Fork me on GitHub"></a>        
+
+        <div id="loading" class="loading-img loading-div" >
+            <img src="img/loading.gif" class="loading-img">
         </div>
+        
+        <div id="help-frame">
+            <div class="modal-header" id="helpHeader">
+              <button type="button" id="helpClose" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+              <h4 class="modal-title">Help</h4>
+            </div>
+            <div id="help-frame-content"></div>
+        </div>
+
+        <!--div id="infoFrame" class="container info-frame" >
+            <button type="button" class="close" aria-hidden="true" onclik="closeInfoFrame">&times;</button>
+            <!--div id="info" class="info-div" >
+                <div class="progress progress-success progress-striped">
+                    <div class="bar" style="width: 40%"></div>
+                </div>
+                <div class="progress progress-danger progress-striped">
+                    <div class="bar" style="width: 80%"></div>
+                </div>                
+            </div>
+            <div class="progress progress-striped active">
+              <div class="bar" style="width: 40%;"></div>
+            </div>
+        </div-->        
 
         <div id="startModal" class="modal fade">
             <div class="modal-dialog">

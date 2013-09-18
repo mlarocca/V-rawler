@@ -2,26 +2,23 @@
 */
 var Vrawler = (function () {
             "use strict";
+            
             var WIDTH, HEIGHT;
             var paper,
+                ajaxCallsCounter = 0,
                 gemTimeout,
-                nextRoundFunction = null;
+                gemWorker,
+                gemHistory = [],
+                global_graph = [];
             var DESIRED_EDGE_LENGTH_SQUARED = {x: 16384, y: 16384},
                 DISTURBANCE_RANGE = {x: 32, y: 32};
-            var ALPHA_R = Math.PI / 3,
-                ALPHA_0 = Math.PI,
-                SIGMA_R,
-                SIGMA_0 = 1/3;
             var GRAPH_ANIMATION_DURATION = 1000,
                 GRAPH_ANIMATION_DELAY_STEP = 750,
                 GRAPH_ANIMATION_INITIAL_DELAY = 250,
+                MESSAGE_DURATION = 5000,    //5 seconds
                 LABEL_SIZE = 14;
             var MAX_ROUNDS_ON_VERTEX_MOVE = 5,
-                MAX_ROUNDS = 20,
-                MIN_T = 0.001,
-                MAX_T = 256,
-                INITIAL_T = 50,
-                GRAV_CONSTANT = 1/16;
+                MAX_ROUNDS = 20;
             var DEFAULT_OPACITY = 0.5,
                 HIGHLIGHTED_OPACITY = 0.8,
                 MIN_VERTEX_RADIUS = 35,
@@ -41,7 +38,6 @@ var Vrawler = (function () {
                 JSON_TAG: "json/",
                 COLORS: ["green", "red", "orange", "orangered", "yellow", "blue", "magenta", "salmon", "black", "turquoise", "darkgreen", "pink", "brown"],
                 TEXT_COLORS: ["yellow", "black", "indigo", "red", "black", "yellow", "red", "red", "white", "darkblue", "white", "red", "white"],
-                vertices: [],
                 /** PseudoConstructor method: init the object according to page size and properties.
 
                     @method init
@@ -156,12 +152,12 @@ var Vrawler = (function () {
                     var i, j, v, adj, n, m;
                     
                     this.clearGEMTimeout();
-                    nextRoundFunction = null;
+                    
                     //Clear event handlers and timeouts
 
-                    n = this.vertices.length;
+                    n = global_graph.length;
                     for (i = 0; i < n; i++) {
-                        v = this.vertices[i];
+                        v = global_graph[i];
 
                         if (v.glowTimeout) {
                             clearTimeout(v.glowTimeout);
@@ -178,15 +174,59 @@ var Vrawler = (function () {
                         }
                         delete v.edges;
                         delete v.edge_lines;
-                        delete this.vertices[i];
+                        delete global_graph[i];
                     }
                         
-                    this.vertices.length = 0;
+                    global_graph.length = 0;
                     
                     paper.clear();
 
                     return this;
                 },
+                /** 
+                  */
+                startGEM: function (graph, delay, rounds) {
+
+                    gemWorker = new Worker('js/app/gem.min.js');
+
+                    var self = this, n = graph.length, 
+                        v, v_pos, vertices = [];
+
+                    for (var i = 0; i < n; i++) {
+                        v = graph[i];
+                        v_pos = {
+                            x: v.x,
+                            y: v.y,
+                            index: v.index,
+                            size: v.size,
+                            edges: v.edges
+                        };
+                        vertices[i] = v_pos;
+                    }
+                    gemWorker.postMessage({ 
+                                            graph: vertices,
+                                            max_rounds: rounds || MAX_ROUNDS,
+                                            viewWidth: this.getWidth(),
+                                            viewHeight: this.getHeight(),
+                                            DISTURBANCE_RANGE: DISTURBANCE_RANGE,
+                                            DESIRED_EDGE_LENGTH_SQUARED: DESIRED_EDGE_LENGTH_SQUARED
+                                        });
+                    gemWorker.onmessage = function (event) {
+
+                        if (event.data.stop) {
+                            gemWorker.terminate();
+                            gemWorker = null;
+                        } else {
+                            gemHistory.push(event.data);
+                        }
+                    };
+                    gemTimeout = setTimeout(function () {
+                                                gemTimeout = setInterval(self.nextGEMUpdateFunction, GRAPH_ANIMATION_DURATION);
+                                            },
+                                            delay
+                                );
+                },
+                
                 /** If GEM algorithm is still running, cancels the active timeout associated with it.
 
                     @method clearGEMTimeout
@@ -196,8 +236,13 @@ var Vrawler = (function () {
                   */
                 clearGEMTimeout: function () {
                     if (gemTimeout) {
-                        clearTimeout(gemTimeout);
+                        clearInterval(gemTimeout);
                         gemTimeout = null;
+                    }
+
+                    if (gemWorker) {
+                        gemWorker.terminate();
+                        gemWorker = null;
                     }
 
                     return this;
@@ -212,7 +257,7 @@ var Vrawler = (function () {
                   */                
                 pauseGEM: function () {
                     if (gemTimeout) {
-                        clearTimeout(gemTimeout);
+                        clearInterval(gemTimeout);
                     }
 
                     return this;
@@ -227,8 +272,9 @@ var Vrawler = (function () {
                   */                   
                 stopGEM: function () {
                     this.clearGEMTimeout();
-                    nextRoundFunction = null;
-
+                    if (gemHistory) {
+                        gemHistory.length = 0;  //Erase History array avoiding loithering and leaks  
+                    } 
                     return this;
                 },
                 /** If GEM algorithm is paused, resume it.
@@ -239,11 +285,30 @@ var Vrawler = (function () {
                     @return {Object} The original object.
                   */                   
                 resumeGEM: function () {
-                    if (gemTimeout && typeof nextRoundFunction === "function") {
-                        gemTimeout = setTimeout(nextRoundFunction, GRAPH_ANIMATION_DURATION);
+                    if (gemTimeout) {
+                        gemTimeout = setInterval(this.nextGEMUpdateFunction, GRAPH_ANIMATION_DURATION);
+                    } else {
+                        module.showInfo("GEM isn't currently running or paused, can't be resumed");
                     }
 
                     return this;
+                },
+                nextGEMUpdateFunction: function() { 
+                    var vertices, n;
+                    if (gemHistory.length > 0) {                   
+                        vertices = gemHistory[0];    //Update vertices coordinates
+                        gemHistory.splice(0,1); //Removes first element from history array
+
+                        n = vertices.length;
+                        for (var i = 0; i < n; i++) {
+                            //Updates coordinates on the graph object
+                            global_graph[i].x = vertices[i].x;
+                            global_graph[i].y = vertices[i].y;
+                        }
+                        module.updateGraph(global_graph);
+                    } else if (gemWorker === null) {
+                        module.stopGEM();
+                    }
                 },
                 /** Set the values for the optimal edge length.
                     If the two coordinates are not evenly balanced, makes the bigger one equal to 1.418 times the smallest.
@@ -337,231 +402,7 @@ var Vrawler = (function () {
                 getLinePath: function(xs, ys, xe, ye) {
                     return ["M", xs, " ", ys, " L", xe, " ", ye].join("");
                 },
-                /** 
-                  */
-                startGEM: function (graph, delay, rounds) {
-                    var that = this;
-                    gemTimeout = setTimeout(function () {
-                        that.GEM(graph, rounds || MAX_ROUNDS);
-                    }, delay );
-                },
-                /** GEM core method.
-                    Starts GEM algorithm, by initializing its internal properties and then starting its rounds.
-                    
-                    @method GEM
-                    @for Vrawler
-
-                    @param {Array} graph A list of the vertices in the graph to be embedded.
-                    @param {Number} max_rounds The maximum number of rounds to perform in the simulated annealing process, if the algorithm doesn't converge earlier.
-                */
-                GEM: function(graph, max_rounds) {
-                    var global_T, 
-                        round,
-                        that = this,
-                        n = graph.length,
-                        baricenter,
-                        Ts = [],    //Temperature vector, for each vertex
-                        ds = [],    //Direction skew gauge vector, for each vertex
-                        ps = [],    //Impulse vector, for each vertex
-                        Phi = [],   //Function growing with vertex degree [1 + deg(v)/2]. Since degree is constant for each vertex, can be precomputes
-                        nextVertex = new Array(n);
-
-                    /** Return the angle between two vectors in the plane, expressed in radiants
-                      *
-                      * @method angleBetweenVectors
-                      * @private
-                      * @for Vrawler  
-                      * 
-                      * @param p {Object} The first vector, as an object with two fields: x and y.
-                      * @param q {Object} The second vector, as an object with two fields: x and y.
-                      * 
-                      * @return {Number} The angle between the two vectors, in radiants.
-                      */
-                    var angleBetweenVectors = function (p, q) {
-                        return Math.acos((p.x * q.x + p.y * q.y) / Math.sqrt(p.x * p.x + p.y * p.y) / Math.sqrt(q.x * q.x + q.y * q.y));
-                    };
-
-                    var initGEM = function () {
-                        var i, v;
-                        round = 0;
-                        global_T = INITIAL_T;
-
-                        SIGMA_R = 0.5 / n;  //Init sigma_r value
-
-                        baricenter = {x: 0, y:0};
-                        //vertices positions are already chosen randomly
-                        for (i = 0; i < n; i++) {
-                            v = graph[i];
-                            baricenter.x += v.x;
-                            baricenter.y += v.y;
-                            Ts[i] = INITIAL_T;
-                            ds[i] = 0;
-                            ps[i] = {x: 0, y: 0};
-                            Phi[i] = 1 + v.edges.length / 2;
-
-                            nextVertex[i] = i;
-                        }
-                        baricenter.x /= n;
-                        baricenter.y /= n;
-                    };
-
-                    /**
-                         @param {Array} vertexOrder A reference to the array specifing in which order the vertices should be processed.
-
-                         @return {Array} The same array, after shuffling.
-                      */
-                    var computeVertexOrder = function (vertexOrder) {
-                        var i, j, tmp;
-                        
-                        for (i = 1; i < n; i++) {
-                            j = Math.floor(Math.random() * i);
-                            tmp = vertexOrder[i];
-                            vertexOrder[i] = vertexOrder[j];
-                            vertexOrder[j] = tmp;
-                        } 
-
-                        return vertexOrder;
-                    };
-
-                    /**
-                        @param {Number} v_index The index of the vertex to process.
-                        @param {Object} c The baricenter of the graph embedding (as a simple object with x and y coordinates).
-
-                        @return {Object} The impulse just computed for the vertex (as a simple object with x and y coordinates).
-                      */ 
-                    var computeVertexImpulse = function (v_index, c) {
-
-                        var v = graph[v_index],
-                            delta = {x: (Math.random() - 0.5) * DISTURBANCE_RANGE.x, y: (Math.random() - 0.5) * DISTURBANCE_RANGE.y},
-                            i, u, m = v.edges.length,
-                            p = {x:0, y:0},
-                            tmp,
-                            delta_module_squared;
-
-                        //Attraction to the center of gravity
-                        //console.log("--A:", c.x, v.x , GRAV_CONSTANT, v.size, Phi[v_index] , delta.x, DISTURBANCE_RANGE)
-                        tmp = GRAV_CONSTANT * Phi[v_index] * v.size;   //optimization: compute this product once
-                        p.x = (c.x - v.x) * tmp;
-                        p.y = (c.y - v.y) * tmp;
-
-                        //Gravitational boost if the vertex is out of the screen
-                        if (v.x <= v.radius || v.x + v.radius >= that.getWidth()) {
-                            p.x *= 4;
-                        }
-                        if (v.y <= v.radius || v.y + v.radius >= that.getHeight()) {
-                            p.y *= 4;
-                        }                                    
-
-                        //Add random noise
-                        p.x +=  delta.x;
-                        p.y +=  delta.y;
-
-                        for (i = 0; i < n; i++) {
-                            //Repulsive forces between vertices
-                            if (i !== v_index) {
-                                u = graph[i];
-                                delta.x = v.x - u.x;
-                                delta.y = v.y - u.y;
-                                if (delta.x !== 0 || delta.y !== 0) {
-                                    delta_module_squared = (delta.x * delta.x) + (delta.y * delta.y);
-
-                                    tmp =  v.size * u.size / delta_module_squared;  //optimization: compute this product once
-
-                                    p.x += delta.x * DESIRED_EDGE_LENGTH_SQUARED.x * tmp;
-                                    p.y += delta.y * DESIRED_EDGE_LENGTH_SQUARED.y * tmp;
-                                }
-                            }
-                        }
-
-                        for (i = 0; i < m; i++) {
-                            //Attractive forces between pair of adjacent vertices
-                            u = graph[v.edges[i]];
-
-                            delta.x = v.x - u.x;
-                            delta.y = v.y - u.y;
-                            delta_module_squared = (delta.x * delta.x) + (delta.y * delta.y);
-                            tmp = delta_module_squared / Phi[v_index];    //optimization: compute this product once
-                            p.x -= delta.x / DESIRED_EDGE_LENGTH_SQUARED.x * tmp;
-                            p.y -= delta.y / DESIRED_EDGE_LENGTH_SQUARED.y * tmp;
-                        }
-
-                        return p;
-                    };
-
-                    /**
-                      * @param v The vertex to update.
-                      * @param p The impulse vector.
-                      * @return {null}
-                      */
-                    var updateVertex = function(v, p) {
-                        var p_module,
-                            v_index = v.index,
-                            v_p = ps[v_index],
-                            beta;
-
-                        if (p.x !== 0 || p.y !== 0) {
-                            p_module = Math.sqrt(p.x * p.x + p.y * p.y);
-                            p.x *= Ts[v_index] / p_module;
-                            p.y *= Ts[v_index] / p_module;
-                            v.x += p.x;
-                            v.y += p.y;
-                            //Quickly update the baricenter
-                            baricenter.x += p.x / n;
-                            baricenter.y += p.y / n;
-                        }
-
-                        if (v_p.x !== 0 || v_p.y !== 0) {
-                            beta = angleBetweenVectors(p, v_p);
-                            var sin_beta = Math.sin(beta),
-                                cos_beta  = Math.cos(beta);
-                            if (sin_beta > Math.sin(Math.PI + ALPHA_R / 2)) {
-                                //Rotation detected
-                                ds[v_index] += SIGMA_R * sin_beta ? (sin_beta < 0 ? -1 : 1) : 0;
-                            }
-                            if (Math.abs(cos_beta) > Math.cos(ALPHA_0 / 2)) {
-                                //Oscillation detected => lower temperatur
-                                Ts[v_index] *= SIGMA_0 * cos_beta;
-                            }
-
-                            Ts[v_index] *= (1 - ds[v_index]);
-                            Ts[v_index] = Math.min(Ts[v_index], MAX_T);
-                            ps[v_index] = p;
-                        }
-                    };
-
-                    /**
-                      *
-                      */
-                    var nextRound = function () {
-                        var i, v_index;
-
-                        if (global_T <= MIN_T || round >= max_rounds) {
-                            that.stopGEM();
-                            return;
-                        }
-                        //else
-                        round += 1;
-                        nextVertex = computeVertexOrder(nextVertex);
-
-                        for (i = 0; i < n; i++) {
-                            //N iterations
-
-                            v_index = nextVertex[i];
-
-                            updateVertex(graph[v_index], computeVertexImpulse(v_index, baricenter));
-                            
-                        }
-
-                        that.updateGraph(graph);
-                        gemTimeout = setTimeout(nextRound, GRAPH_ANIMATION_DURATION);
-                    };
-
-                    nextRoundFunction = nextRound;
-
-                    initGEM();
-
-                    nextRound();
-                },
+                
                 //Event Handlers
 
                 /** Generate a mouseover handler for vertex objects.
@@ -613,7 +454,7 @@ var Vrawler = (function () {
                   * @return {Function} The event handler for dragstart events.
                   */                                      
                 generateDragStartEventHandler: function (graph) {
-                    
+                    var showInfo = this.showInfo;
                     return function () {
                         var vertex = graph[this.attr('vertex_index')];  //retrieves the vertex index from the target of the event (this reference)
                         vertex.dragged = false;    //True <=> actual dragging takes place                                                     
@@ -624,6 +465,8 @@ var Vrawler = (function () {
                             this.glowx = this.ox;
                             this.glowy = this.oy;
                             vertex.dragging = true;                   
+                        } else {
+                            showInfo("When GEM algorithm is running or paused, vertex dragging is disabled. Click on STOP first.");
                         }
                     };
 
@@ -637,7 +480,7 @@ var Vrawler = (function () {
                   * @return {Function} The event handler for dragmove events.
                   */                 
                 generateDragMoveEventHandler: function (graph) {
-                    var that = this;
+                    var self = this;
 
                     return function (dx, dy) {
                                 var vertex = graph[this.attr('vertex_index')];
@@ -662,10 +505,10 @@ var Vrawler = (function () {
                                         u = graph[u_index];
                                         if (typeof vertex.edge_lines[u_index] !== "undefined") {
                                             e = vertex.edge_lines[u_index];
-                                            e.attr({'path': that.getLinePath(vertex.x, vertex.y, u.x, u.y)});
+                                            e.attr({'path': self.getLinePath(vertex.x, vertex.y, u.x, u.y)});
                                         } else {
                                             e = u.edge_lines[vertex.index];
-                                            e.attr({'path': that.getLinePath(u.x, u.y, vertex.x, vertex.y)});
+                                            e.attr({'path': self.getLinePath(u.x, u.y, vertex.x, vertex.y)});
                                         }
                                     }                                             
                                 }
@@ -681,7 +524,7 @@ var Vrawler = (function () {
                   * @return {Function} The event handler for dragup events.
                   */                 
                 generateDragUpEventHandler: function (graph) {                                
-                    var that = this;
+                    var self = this;
 
                     return function (e) {
                         //!IMPORTANT: Drag up event is fired before click event
@@ -689,7 +532,7 @@ var Vrawler = (function () {
                         var vertex = graph[this.attr('vertex_index')];
 
                         if (vertex.dragging && vertex.dragged && e.button !== 2) { //Right click to drag without triggering GEM
-                            that.startGEM(graph, GRAPH_ANIMATION_INITIAL_DELAY, MAX_ROUNDS_ON_VERTEX_MOVE);
+                            self.startGEM(graph, GRAPH_ANIMATION_INITIAL_DELAY, MAX_ROUNDS_ON_VERTEX_MOVE);
                         }
                         vertex.dragging = false;
                         e.preventDefault();
@@ -707,7 +550,7 @@ var Vrawler = (function () {
                   * @return {Function} The event handler for click events.
                   */                 
                 generateClickEventHandler: function (graph, urls) {
-                    var that = this;
+                    var self = this;
 
                     return function (e) {
                             var i = this.attr('vertex_index'),
@@ -716,7 +559,7 @@ var Vrawler = (function () {
                             
                             //!IMPORTANT: Drag up event is fired before click event
                             if (!vertex.dragged) {
-                                that.showPageDetails(page.url, page.links, page.resources.images, page.resources.videos, page.resources.audios);
+                                self.showPageDetails(page.url, page.links, page.resources.images, page.resources.videos, page.resources.audios);
                             }
                             e.preventDefault();
                             e.stopPropagation();
@@ -769,6 +612,7 @@ var Vrawler = (function () {
                         cs = this.randomCoordinates();
                         v.x = v.x0 = cs[0];
                         v.y = v.y0 = cs[1];
+//global_graph[i] = $.extend(true, {}, v);   //Deep cloning of each vertex
                         if (page.page_size > max_size) {
                             max_size = page.page_size;
                         }
@@ -832,10 +676,6 @@ var Vrawler = (function () {
                         
 
 
-                        //v.vertex.drag(this.generateDragMoveEventHandler(v, graph), this.generateDragStartEventHandler(v), this.generateDragUpEventHandler(v, graph));                        
-                        //v.vertex.click(this.generateClickEventHandler(v, page.url, page.links, page.resources.images, page.resources.videos, page.resources.audios));
-                        //v.vertex.mouseover(this.generateMouseOverEventHandler(v));
-                        //v.vertex.mouseout(this.generateMouseOutEventHandler(v));
                         v.vertex.node.oncontextmenu = this.disableContentMenuFunction;  //Disable context menu
 
                         v.label = paper.text(v.x, v.y, this.formatPagePath(page.path))
@@ -847,11 +687,7 @@ var Vrawler = (function () {
                         
                         vertices_set.push(v.label);
                         v.label.node.setAttribute("class", "vertex-text");
-
-                        //v.label.drag(this.generateDragMoveEventHandler(v, graph), this.generateDragStartEventHandler(v), this.generateDragUpEventHandler(v, graph)); 
-                        //v.label.click(this.generateClickEventHandler(v, page.url, page.links, page.resources.images, page.resources.videos, page.resources.audios));
-                        //v.label.mouseover(this.generateMouseOverEventHandler(v));
-                        //v.label.mouseout(this.generateMouseOutEventHandler(v));                        
+                      
                         v.label.node.oncontextmenu = this.disableContentMenuFunction;  //Disable context menu
                                      
                         v.glowTimeout = setTimeout(this.generateGlowCallback(v),
@@ -929,25 +765,60 @@ var Vrawler = (function () {
                 },
                 showLoading: function (show) {
                     if (show) {
-                        $("#loadingFrame").css({visibility: "visible", 'z-index': 1});
+                        var top =  module.getHeight() / 2 - parseInt( $(".loading-img").css("height"), 10) / 2,
+                            left =  module.getWidth() / 2 - parseInt($(".loading-img").css("width"), 10) / 2;
+
+                        $("#loading").css({visibility: "visible", 'z-index': 1, 'top': top, 'left': left});
                     } else {
-                        $("#loadingFrame").css({visibility: "hidden", 'z-index': -1});
+                        $("#loading").css({visibility: "hidden", 'z-index': -1});
                     }
+                },
+                scheduleMessageRemoval: function(messageDOMElement) {
+                    setTimeout( function () {
+                                    messageDOMElement.remove(); 
+                                },
+                                MESSAGE_DURATION);
                 },
                 showError: function (message) {
                     var alert = $('<div class="alert alert-danger vrawler-alert">' +
                                     '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
                                     '<strong>Warning!</strong> <span id="dangerMessage">' + message + '</span>' + 
                                     '</div>');
-                    $('body').append(alert);                
+                    $('body').append(alert);
+                    module.scheduleMessageRemoval(alert);     
+
                 },
                 showWarning: function (message) {
                     var alert = $('<div class="alert alert-info vrawler-alert">' +
                                     '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
                                     '<strong>Warning!</strong> <span id="dangerMessage">' + message + '</span>' + 
                                     '</div>');
-                    $('body').append(alert);              
-                },                
+                    $('body').append(alert);
+                    module.scheduleMessageRemoval(alert);
+                },     
+                showInfo: function (message) {
+                    var alert = $('<div class="alert alert-success vrawler-alert">' +
+                                    '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
+                                    '<strong>Info:</strong> <span id="dangerMessage">' + message + '</span>' + 
+                                    '</div>');
+                    $('body').append(alert);
+                    module.scheduleMessageRemoval(alert);             
+                },
+                showHelp: function (show) {
+                    if (show) {
+                        $("#help-frame-content").load("help/help-en.html",     //the selector prevent jQuery from running scripts before stripping them
+                                                    function (response, status, xhr ) {
+                                                        if ( status === "error" ) {
+                                                            console.log(xhr.status, xhr.statusText);
+                                                            module.showError("Sorry, we couldn't load the help file for your language.");
+                                                        } else{
+                                                            $("#help-frame").css({"visibility": "visible", "z-index": 1});
+                                                        }                                                   
+                                                    });
+                    } else {
+                        $("#help-frame").css({"visibility": "hidden", "z-index": -1});
+                    }
+                },
                 validateURL: function (url) {
                     url = url.trim();
                     if (URL_REGEX.test(url) === false) {
@@ -962,15 +833,23 @@ var Vrawler = (function () {
                 },
                 getSiteMap: function (url) {
                     $("#startModal").modal("hide");
+                    this.stopGEM();
                     this.clearAll();
-                    var that = this;
+                    var self = this;
                     url = this.validateURL(url);
                     if (!url) {
                         this.showError("Error: the URL inserted isn't valid");
                         return;
                     }
 
+                        
+                    if (ajaxCallsCounter > 0) {
+                        this.showWarning("An url is currently being parsed. Please wait until the request is completed");
+                        return; //We are going to serve only just last call
+                    }
                     this.showLoading(true);
+
+                    ++ajaxCallsCounter; //One more call on the way
 
                     $.getJSON(url, {
                         format: "jsonp"
@@ -980,8 +859,12 @@ var Vrawler = (function () {
                             urls = [],
                             v,
                             i, j, page, url,
-                            index, graph = [], n,
+                            index, n,
                             delay;
+
+
+                        global_graph = [];
+                        
 
                         for (url in data) {
                             
@@ -992,51 +875,52 @@ var Vrawler = (function () {
                             
                             urls.push(page);
 
-                            graph[index] = {'index': index, 'x': 0, 'y': 0, 'edges':[]};
-                            that.vertices.push(graph[index]);
-
+                            global_graph[index] = {'index': index, 'x': 0, 'y': 0, 'edges':[]};
                         }
 
-                        n = graph.length;
+                        n = global_graph.length;
 
                         if (n > 0) {
 
                             //Compute the desired edge length and the range of disturbance according to size of the window and number of vertices
 
-                            that.setDesiredEdgeLength(that.getWidth() / Math.log(n + 1), that.getHeight() / Math.log(n + 1));
+                            self.setDesiredEdgeLength(self.getWidth() / Math.log(n + 1), self.getHeight() / Math.log(n + 1));
 
                             for (url in data) {
                                 index = url_to_index[url];
-                                v = graph[index];
+                                v = global_graph[index];
                                 page = data[url];
                                 for (i = 0; i < page.links.length; i++) {
                                     j = url_to_index[page.links[i]];
                                     if (typeof j !== "undefined" && j !== index && $.inArray(j, v.edges) < 0) { //avoid duplicates
                                         v.edges.push(j);
-                                        if ($.inArray(index, graph[j].edges) < 0) {
-                                            graph[j].edges.push(index);
+                                        if ($.inArray(index, global_graph[j].edges) < 0) {
+                                            global_graph[j].edges.push(index);
                                         }
                                     }
                                 }
                             }
 
-                            that.showLoading(false);
+                            self.showLoading(false);
 
-                            delay = that.drawGraph(graph, urls);
-                            that.startGEM(graph, delay);
+                            delay = self.drawGraph(global_graph, urls);
+                            self.startGEM(global_graph, delay);
                         } else {
-                            that.showLoading(false);
-                            that.showError("Impossible to crawl the URL inserted");
+                            self.showLoading(false);
+                            self.showError("Impossible to crawl the URL inserted");
                         }
+                    }).always(function () {
+                        //Always decrement jquery calls counter
+                        --ajaxCallsCounter;
                     });
                     $( document ).ajaxError(function( event, jqxhr /*, settings, exception */) {
-                        that.showLoading(false);
+                        self.showLoading(false);
                         if (jqxhr.status === 400) {
-                            that.showError("Website not found, please check the URL");
+                            self.showError("Website not found, please check the URL");
                         } else if (jqxhr.status === 408){
-                            that.showWarning("Too many requests from this IP address: please wait at least 10 seconds");                        
+                            self.showWarning("Too many requests from this IP address: please wait at least 10 seconds");                        
                         } else {
-                            that.showError("Impossible to crawl the URL inserted");
+                            self.showError("Impossible to crawl the URL inserted");
                         }
                     });
                 }                
@@ -1085,6 +969,13 @@ $(function(){
                                         Vrawler.getSiteMap(Vrawler.getServerUrl() + $("#urlField").val());
                                     }
                                 });
+        $("#helpButton").click(function (e) {
+                                    Vrawler.showHelp(true);
+                                });
+        $("#helpClose").click(function (e) {
+                                    Vrawler.showHelp();
+                                });
+
         $("#clearButton").click(function (e) {
                                     Vrawler.clearAll();
                                 });
@@ -1092,7 +983,7 @@ $(function(){
                                     Vrawler.pauseGEM();
                                 });
         $("#stopButton").click(function (e) {
-                                    Vrawler.clearGEMTimeout();
+                                    Vrawler.stopGEM();
                                 });
         $("#resumeButton").click(function (e) {
                                     Vrawler.resumeGEM();

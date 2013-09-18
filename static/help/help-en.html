@@ -1,0 +1,35 @@
+<div>
+			V-rawler is a visual interface for a web crawler. To put it simple, you give it a web site&#39;s URL, and it will visit it for you, creating a map of its structure, and listing the resources used by each page visited. It works with almost every single website on the net, although you might find some odd answers for a few dynamic web sites.<br/>
+			<strong><span class="title">Guide</span></strong><br/>
+			To get started, you have 4 ways:<br/>
+		<ol >
+			<li>
+					Insert the URL of the initial page to crawl in the text field of the modal dialog that appears on loading; The dialog can be reopened by clicking on &quot;Visual Crawler&quot; in the navigation bar.
+			</li>
+			<li>
+					If the dialog mentioned above is not displayed, you can insert the URL in the field on the right of the navigation bar, and then hit the &quot;Crawl&quot; button;
+			</li>
+			<li>
+					A REST interface is exposed: to crawl <a href="http://google.com" target="blank">http://google.com</a>, for example, just visit<span class="Apple-converted-space"> <a href="http://v-rawler.appspot.com/visual/google.com" target="blank">http://v-rawler.appspot.com/visual/google.com</a>;<span class="Apple-converted-space">
+			</li>
+			<li>
+					The REST interface allows you to get the json data back from the crawler, and then do whatever you want with it; for the example above, just visit <a href="http://v-rawler.appspot.com/json/google.com" target="blank">http://v-rawler.appspot.com/json/google.com</a>
+			</li>
+		</ol>
+			Once the site has been crawled a map will be displayed on your screen, representing every page in your site with a graph vertex, a circle whose color will reflect the page&#39;s depth and whose size will reflect the page&#39;s size. This algorithm works in a few steps, during which the vertex on the screen will be moved and reorganized. You can stop, pause, or cancel this process at any time using the navigation bar.<br/>
+			<strong><span class="title">Actions on vertices</span></strong><br/>
+		<ul>
+			<li>
+				<strong>[Left click]</strong> You can click on any vertex/page at any time, and this will open a dialog window with a report of the resources used by that page.
+			</li>
+			<li>
+				<strong>[Drag &amp; Drop] </strong>Once the embedding algorithm has or has been stopped, you can freely drag vertices around if you feel that can improve the overall embedding, or... even if you just find it fun.
+			</li>
+			<li>
+				<strong>[Left mouse button + drag] </strong>If you use the left mouse button for dragging, the optimization algorithm will start again, with a storter cycle.
+			</li>
+			<li>
+				<strong>[Right mouse button + drag]&nbsp;</strong> If you, instead, use the right mouse button, the optimization algorithm will not be triggered.
+			</li>
+		</ul>
+</div>

@@ -117,22 +117,78 @@ body{
     height: 305px !important;
 }
 
-.loading-div {
-    margin-left: auto !important;
-    margin-right: auto !important;
-    overflow: hidden;
-
-}
-
-.loading-frame {
+#loading {
     visibility: hidden;
     z-index: -1;    
-    width: 100% important;
-    position: relative;
-    top: -500px;
+    position: absolute;
+    pointer-events: none !important;
+}
+
+.info-frame {
+    /*visibility: hidden;
+    z-index: -1;    */
+    width: 100% !important;
+    position: absolute;
+    top: 100px;
+    left: 10px;
 }
 
 .vrawler-alert {
     position: relative;
-    top: -400px;
+    top: -100px;
+}
+
+#github-ribbon {
+    pointer-events:none !important;
+}
+
+#help-frame {
+    position: absolute !important;
+    left: 0px;
+    top: 50px;
+    width: 500px;
+    
+    border-radius: 10px;
+    border: 3px solid rgba(0, 0, 255, 0.7);
+    background-color: rgba(0, 0, 255, 0.5);;
+    z-index: -1;
+    visibility: hidden;
+    pointer-events: none;
+    color: black;
+}
+
+#helpClose {
+    pointer-events: auto !important;
+}
+
+#help-frame .modal-header {
+    height: 40px !important;
+    margin-bottom: 5px !important;
+    padding-top: 5px !important;
+}
+
+#help-frame .modal-header > h4 {
+    color: rgb(255, 255, 0) !important;
+    font-size: 24px !important;
+}
+
+#help-frame-content {
+    margin: 0px 0px 20px;
+    padding: 10px !important;
+    border: 0px;
+    font-family: HelveticaNeue, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 12px;
+}
+
+#help-frame-content .title {
+    color: rgb(255, 255, 0) !important;
+    font-size:16px !important;
+}
+
+#help-frame-content a {
+    color: rgb(24, 24, 99);
+    font-weight: inherit;
+    text-decoration: underline;
+    outline: 0px;
+    pointer-events: auto !important;
 }

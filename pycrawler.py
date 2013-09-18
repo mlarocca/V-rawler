@@ -88,8 +88,10 @@ class PageParser(HTMLParser):
 #    logging.info("Crawling page: %s; time:%s\n" % (url, datetime.now())) #Logs current page in order to give signals of its activity
     
     try:
-      page = urlfetch.fetch(url)
+      page = urlfetch.fetch(url, validate_certificate=False)
     except DownloadError:
+      return None
+    except Exception:
       return None
     
     if page.status_code != 200:
@@ -418,10 +420,14 @@ class CrawlerHandler(object):
       url = HTTP_SCHEMA + url
             
     try:
-      page = urlfetch.fetch(url)
+      page = urlfetch.fetch(url, validate_certificate=False)
     except DownloadError:
       logging.error("URL unreacheable: %s" % url)
       return None    
+    except Exception as err:
+      logging.error(err)
+      return None    
+      
     
     if page.status_code != 200:    
       logging.error("URL_error %d" % page.status_code)
